@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">AR Video</string>
+    <string name="camera_permission_required">Camera permission is required to use AR features.</string>
+    <string name="arcore_not_supported">This device does not support ARCore.</string>
+    <string name="scanning_hint">Point camera at an image to play video</string>
+</resources>
