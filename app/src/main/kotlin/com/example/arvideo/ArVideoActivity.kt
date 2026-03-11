@@ -49,8 +49,9 @@ class ArVideoActivity : AppCompatActivity() {
 
     // Configuration
     private val videoConfig = mapOf(
-        "test"           to VideoData("test", "test.png", "videos/test.mp4", 0.1f),
-        "book"           to VideoData("BRS Physiology", "book.png", "videos/book.mp4", 0.22f)
+        "picture"       to VideoData("Picture", "picture.jpeg", "videos/picture.mp4", 0.2f),
+        "perfume"       to VideoData("Perfume", "perfume.jpeg", "videos/perfume.mp4", 0.15f),
+        "book"          to VideoData("BRS Physiology", "book.png", "videos/book.mp4", 0.22f)
     )
 
     data class VideoData(
