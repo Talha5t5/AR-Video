@@ -20,6 +20,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import com.example.arvideo.databinding.ActivityArVideoBinding
 import com.google.ar.core.AugmentedImage
 import com.google.ar.core.AugmentedImageDatabase
@@ -42,14 +43,14 @@ class ArVideoActivity : AppCompatActivity() {
     private val activeNodes        = mutableMapOf<String, AnchorNode>()
     private val activePoolItems    = mutableMapOf<String, ExoPlayerPool.PlayerInstance>()
     private val lastTrackingState  = mutableMapOf<String, TrackingState>()
+    private val videoPlaneNodes   = mutableMapOf<String, PlaneNode>()
+    private val preloadedPlayers   = mutableMapOf<String, ExoPlayerPool.PlayerInstance>()
     private var firstDetected = false
 
     // Configuration
     private val videoConfig = mapOf(
         "test"           to VideoData("test", "test.png", "videos/test.mp4", 0.1f),
-        "bunny_poster"   to VideoData("Big Buck Bunny", "bunny_poster.png", "videos/bunny_poster.mp4", 0.5f),
-        "elephant_flyer" to VideoData("Elephant Dream", "elephant_flyer.png", "videos/elephant_flyer.mp4", 0.21f),
-        "spaceship_card" to VideoData("Cosmic Voyager", "spaceship_card.png", "videos/test.mp4", 0.085f)
+        "book"           to VideoData("BRS Physiology", "book.png", "videos/book.mp4", 0.22f)
     )
 
     data class VideoData(
@@ -176,13 +177,21 @@ class ArVideoActivity : AppCompatActivity() {
     }
 
     private fun preLoadVideos() {
-        val assetsToPreload = videoConfig.values.take(4) 
-        assetsToPreload.forEach { data ->
+        // Preload all videos and keep them ready for instant playback
+        videoConfig.forEach { (name, data) ->
             val poolItem = playerPool.acquire() ?: return@forEach
-            poolItem.player.setMediaItem(MediaItem.fromUri("asset:///${data.videoPath}"))
-            poolItem.player.prepare()
-            poolItem.player.playWhenReady = false
-            playerPool.release(poolItem)
+            val player = poolItem.player
+            val targetMedia = "asset:///${data.videoPath}"
+            
+            player.setMediaItem(MediaItem.fromUri(targetMedia))
+            player.playWhenReady = true // Ready to play immediately
+            player.prepare() // Prepare in background
+            
+            // Keep player ready but paused until image is detected
+            player.pause()
+            
+            preloadedPlayers[name] = poolItem
+            Log.d(TAG, "Preloaded video: $name")
         }
     }
 
@@ -217,29 +226,66 @@ class ArVideoActivity : AppCompatActivity() {
     }
 
     private fun observeARFrames() {
-        binding.arSceneView.onSessionUpdated = { _, frame ->
+        binding.arSceneView.onSessionUpdated = { session, frame ->
+            // Get updated trackables for new detections
             val updated = frame.getUpdatedTrackables(AugmentedImage::class.java)
-            for (image in updated) {
-                val name = image.name
-                val prevState = lastTrackingState[name]
-                val newState = image.trackingState
-
-                when {
-                    newState == TrackingState.TRACKING -> {
-                        if (prevState != TrackingState.TRACKING) {
-                            if (activeNodes.containsKey(name)) {
-                                activePoolItems[name]?.player?.play()
-                                binding.tvStatus.text = "Tracking: $name"
-                            } else {
-                                attachVideoNode(image)
-                            }
+            // Get all trackables to check active images
+            val allTrackables = session.getAllTrackables(AugmentedImage::class.java)
+            val trackedImageMap = allTrackables.associateBy { it.name }
+            
+            // First, check all active videos and pause if not TRACKING
+            for (activeName in activeNodes.keys.toList()) {
+                val image = trackedImageMap[activeName]
+                val player = activePoolItems[activeName]?.player
+                val planeNode = videoPlaneNodes[activeName]
+                
+                if (image == null) {
+                    // Image completely disappeared
+                    player?.pause()
+                    planeNode?.isVisible = false
+                    cleanupImage(activeName)
+                    continue
+                }
+                
+                when (image.trackingState) {
+                    TrackingState.TRACKING -> {
+                        // Image is tracking - ensure video plays and plane is visible
+                        if (player != null && !player.isPlaying) {
+                            player.play()
+                        }
+                        // Show plane immediately - video is preloaded
+                        if (planeNode != null && !planeNode.isVisible) {
+                            planeNode.isVisible = true
                         }
                     }
-                    newState == TrackingState.PAUSED && prevState == TrackingState.TRACKING -> {
-                        activePoolItems[name]?.player?.pause()
-                        binding.tvStatus.text = "Paused: $name"
+                    TrackingState.PAUSED, TrackingState.STOPPED -> {
+                        // Image not visible - PAUSE immediately and hide plane
+                        if (player != null && player.isPlaying) {
+                            player.pause()
+                        }
+                        planeNode?.isVisible = false
+                        if (image.trackingState == TrackingState.STOPPED) {
+                            cleanupImage(activeName)
+                        }
                     }
-                    newState == TrackingState.STOPPED -> cleanupImage(name)
+                }
+            }
+            
+            // Handle new detections from updated trackables
+            for (image in updated) {
+                val name = image.name
+                if (name !in videoConfig) continue
+                
+                val prevState = lastTrackingState[name]
+                val newState = image.trackingState
+                
+                when {
+                    newState == TrackingState.TRACKING && prevState != TrackingState.TRACKING -> {
+                        // New detection or resuming from paused
+                        if (!activeNodes.containsKey(name)) {
+                            attachVideoNode(image)
+                        }
+                    }
                 }
                 lastTrackingState[name] = newState
             }
@@ -249,16 +295,23 @@ class ArVideoActivity : AppCompatActivity() {
     private fun attachVideoNode(image: AugmentedImage) {
         val name = image.name
         val config = videoConfig[name] ?: return
-        val poolItem = playerPool.acquire() ?: return
+        
+        // Use preloaded player if available, otherwise acquire from pool
+        val poolItem = preloadedPlayers.remove(name) ?: playerPool.acquire() ?: return
         val player = poolItem.player
 
+        // If not preloaded, set up the media
         val targetMedia = "asset:///${config.videoPath}"
         if (player.currentMediaItem?.localConfiguration?.uri?.toString() != targetMedia) {
             player.setMediaItem(MediaItem.fromUri(targetMedia))
+            player.playWhenReady = true
             player.prepare()
+        } else {
+            // Preloaded player - start immediately!
+            player.playWhenReady = true
+            player.play()
         }
         
-        player.playWhenReady = true
         activePoolItems[name] = poolItem
         binding.tvStatus.text = "Playing: ${config.displayName}"
 
@@ -276,11 +329,13 @@ class ArVideoActivity : AppCompatActivity() {
                     materialInstance = poolItem.material.instance
                 ).apply {
                     rotation = Rotation(-90.0f, 0.0f, 0.0f)
+                    isVisible = true // Show immediately - video is preloaded
                 }
 
                 anchorNode.addChildNode(planeNode)
                 binding.arSceneView.addChildNode(anchorNode)
                 activeNodes[name] = anchorNode
+                videoPlaneNodes[name] = planeNode
 
                 if (!firstDetected) {
                     firstDetected = true
@@ -299,6 +354,7 @@ class ArVideoActivity : AppCompatActivity() {
             binding.arSceneView.removeChildNode(it)
             it.destroy()
         }
+        videoPlaneNodes.remove(name)
         activePoolItems.remove(name)?.let { playerPool.release(it) }
         lastTrackingState.remove(name)
         binding.tvStatus.text = "Ready"
@@ -316,6 +372,8 @@ class ArVideoActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         activeNodes.values.forEach { it.destroy() }
+        preloadedPlayers.values.forEach { playerPool.release(it) }
+        preloadedPlayers.clear()
         if (::playerPool.isInitialized) playerPool.releaseAll()
         super.onDestroy()
     }

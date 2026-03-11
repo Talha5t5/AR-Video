@@ -87,15 +87,17 @@ class ExoPlayerPool(
     }
 
     private fun createInstance(): PlayerInstance {
-        // --- Low-latency LoadControl ---
+        // --- Ultra Low-latency LoadControl for instant playback ---
         val loadControl: LoadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                500,    // Min buffer (Reduced from 1000)
-                1000,   // Max buffer (Reduced from 2000)
-                50,     // Buffer for playback (REDUCED from 100)
-                100     // Buffer for playback after rebuffer (REDUCED from 500)
+                100,    // Min buffer (Absolute minimum for instant start)
+                300,    // Max buffer (Minimal)
+                10,     // Buffer for playback (Absolute minimum)
+                25      // Buffer for playback after rebuffer (Minimal)
             )
             .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(0, false) // Don't keep back buffer for faster switching
+            .setTargetBufferBytes(-1) // Unlimited buffer size for faster loading
             .build()
 
         val player = ExoPlayer.Builder(context)
