@@ -1,0 +1,20 @@
+Place your MP4 video files here.
+
+Naming convention:
+  - Video filename must match the image name used in arcoreimg
+  - Example: if your image was named "poster.jpg" in arcoreimg,
+             your video should be "poster.mp4"
+
+Video encoding tips for best performance:
+  ✅ Codec:     H.264 / AVC  (fastest hardware decode on Android)
+  ✅ Container: MP4
+  ✅ Resolution: 720p or 1080p (avoid 4K for overlays)
+  ✅ Bitrate:   2–8 Mbps for 1080p
+  ✅ Audio:     AAC stereo (or mute in code: player.volume = 0f)
+  ✅ Duration:  Any — looping is handled automatically
+
+Example files expected here (based on default imageVideoMap):
+  - poster.mp4
+  - flyer.mp4
+  - business_card.mp4
+  - album_cover.mp4
