@@ -37,15 +37,28 @@ STEP 3 — Build the image database
 
 STEP 4 — Update the image→video mapping in code
    Open:  app/src/main/kotlin/com/example/arvideo/ArVideoActivity.kt
-   Find the `imageVideoMap` variable and update it:
+   Find the `videoConfig` variable and update it:
 
-     private val imageVideoMap = mapOf(
-         "poster"        to "videos/poster.mp4",
-         "flyer"         to "videos/flyer.mp4",
-         "business_card" to "videos/business_card.mp4"
+     private val videoConfig = mapOf(
+         "poster" to VideoData(
+             displayName = "My Poster",
+             imageName   = "poster.jpg",
+             videoPath   = "videos/poster.mp4",
+             width       = 0.20f       // physical width in meters used by ARCore
+         ),
+         "flyer" to VideoData(
+             displayName = "My Flyer",
+             imageName   = "flyer.jpg",
+             videoPath   = "videos/flyer.mp4",
+             width       = 0.18f
+         )
      )
 
-   The KEY must match the image filename (without extension) used in arcoreimg.
+   • The MAP KEY (e.g. "poster") must match the image name stored in `ar_images.imgdb`.
+   • `imageName` is the filename in `assets/images/`.
+   • `videoPath` is the relative path inside the app assets videos folder, e.g. `videos/poster.mp4`.
+   • `width` should match the real‑world physical width you used when building the imgdb
+     (or set it here and regenerate the database with the same values).
 
 STEP 5 — Build & run
    Open the project in Android Studio (Hedgehog 2023.1 or later).
@@ -107,12 +120,35 @@ REQUIREMENTS
 
 HOW TO ADD MORE IMAGE/VIDEO PAIRS
 ──────────────────────────────────
-1. Add your new image to  tools/images/new_image.jpg
-2. Add your new video to  app/src/main/assets/videos/new_video.mp4
-3. Re-run arcoreimg build-db to regenerate ar_images.imgdb
-4. Add entry to imageVideoMap:
-     "new_image" to "videos/new_video.mp4"
-5. Rebuild the app
+1. Add your new image to  tools/images/new_image.jpg   (or reuse the existing tools folder you prefer)
+2. Add your new video to   app/src/main/assets/videos/new_video.mp4
+3. Re-run `arcoreimg build-db` to regenerate `ar_images.imgdb` with the new image:
+     ./arcoreimg build-db \
+       --input_images_directory=./tools/images/ \
+       --output_db_path=./app/src/main/assets/ar_images.imgdb
+4. Add an entry to `videoConfig` in `ArVideoActivity.kt`, for example:
+
+     "new_image" to VideoData(
+         displayName = "My New Experience",
+         imageName   = "new_image.jpg",
+         videoPath   = "videos/new_video.mp4",
+         width       = 0.20f
+     )
+
+5. Rebuild and run the app on an ARCore device.
+
+
+RUNTIME BEHAVIOUR
+─────────────────
+• When the camera clearly sees a registered target image, the app:
+  – Creates an AR plane exactly on top of the image
+  – Starts the corresponding video from the local assets using ExoPlayer
+• If the camera loses tracking of that image:
+  – The video is paused
+  – The AR plane is hidden
+• When the same image is seen again, the video resumes from where it stopped.
+• If multiple known images are visible, each has its own video/plane, but playback
+  may be limited by the ExoPlayer pool size (`poolSize` in `ExoPlayerPool`).
 
 
 TROUBLESHOOTING
